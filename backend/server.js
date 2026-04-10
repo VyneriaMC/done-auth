@@ -66,6 +66,7 @@ app.use((err, req, res, next) => {
 });
 
 // Scheduled vault history cleanup (purge versions older than 30 days)
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 async function runCleanup() {
   try {
     const deleted = await Vault.purgeOldVersions();
@@ -84,7 +85,7 @@ async function start() {
 
     // Run cleanup on startup, then every 24 hours
     await runCleanup();
-    setInterval(runCleanup, 24 * 60 * 60 * 1000);
+    setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 
     app.listen(PORT, () => {
       console.log(`✅ DONE Auth API démarrée sur le port ${PORT}`);

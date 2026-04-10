@@ -2,6 +2,7 @@ const { query } = require('../config/database');
 
 const VAULT_HISTORY_DAYS = 30;
 const VAULT_MAX_BLOB_BYTES = 5 * 1024 * 1024; // 5 MB base64
+const MS_PER_DAY = 86400 * 1000;
 
 class Vault {
   static async findByUserId(userId) {
@@ -49,7 +50,7 @@ class Vault {
   }
 
   static async getHistory(userId) {
-    const cutoff = new Date(Date.now() - VAULT_HISTORY_DAYS * 86400 * 1000);
+    const cutoff = new Date(Date.now() - VAULT_HISTORY_DAYS * MS_PER_DAY);
     const rows = await query(
       `SELECT id, vault_id, revision, size, created_at,
               kdf, wrapped_key_master, wrapped_key_recovery, metadata
@@ -70,7 +71,7 @@ class Vault {
   }
 
   static async purgeOldVersions() {
-    const cutoff = new Date(Date.now() - VAULT_HISTORY_DAYS * 86400 * 1000);
+    const cutoff = new Date(Date.now() - VAULT_HISTORY_DAYS * MS_PER_DAY);
     const result = await query(
       'DELETE FROM vault_versions WHERE created_at < ?',
       [cutoff]
