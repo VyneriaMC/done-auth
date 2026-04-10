@@ -104,7 +104,7 @@ async function getVaultHistory(req, res) {
 async function getVaultVersion(req, res) {
   try {
     const versionId = parseInt(req.params.versionId, 10);
-    if (!versionId || isNaN(versionId)) {
+    if (isNaN(versionId) || versionId < 1) {
       return res.status(400).json({ error: 'ID de version invalide' });
     }
 
