@@ -1,7 +1,19 @@
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
-const { generateToken } = require('../utils/jwt');
+const { generateToken, generateRefreshToken, verifyRefreshToken, hashToken, getRefreshTokenExpiryDate } = require('../utils/jwt');
 const { generateSecret, generateQRCode, verifyToken: verifyOTPToken } = require('../utils/otp');
+const { query } = require('../config/database');
+
+async function _issueRefreshToken(userId) {
+  const refreshToken = generateRefreshToken({ id: userId });
+  const tokenHash = hashToken(refreshToken);
+  const expiresAt = getRefreshTokenExpiryDate();
+  await query(
+    'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
+    [userId, tokenHash, expiresAt]
+  );
+  return refreshToken;
+}
 
 async function register(req, res) {
   try {
@@ -26,10 +38,12 @@ async function register(req, res) {
     const user = await User.create({ username, email, password: hashedPassword });
 
     const token = generateToken({ id: user.id, username: user.username, email: user.email });
+    const refreshToken = await _issueRefreshToken(user.id);
 
     res.status(201).json({
       message: 'Compte créé avec succès',
       token,
+      refreshToken,
       user: { id: user.id, username: user.username, email: user.email }
     });
   } catch (err) {
@@ -63,10 +77,12 @@ async function login(req, res) {
     }
 
     const token = generateToken({ id: user.id, username: user.username, email: user.email });
+    const refreshToken = await _issueRefreshToken(user.id);
 
     res.json({
       message: 'Connexion réussie',
       token,
+      refreshToken,
       user: {
         id: user.id,
         username: user.username,
@@ -112,10 +128,12 @@ async function verifyOTP(req, res) {
     }
 
     const authToken = generateToken({ id: user.id, username: user.username, email: user.email });
+    const refreshToken = await _issueRefreshToken(user.id);
 
     res.json({
       message: 'Authentification réussie',
       token: authToken,
+      refreshToken,
       user: {
         id: user.id,
         username: user.username,
@@ -199,4 +217,64 @@ async function disableOTP(req, res) {
   }
 }
 
-module.exports = { register, login, verifyOTP, setupOTP, confirmOTP, disableOTP };
+async function refreshTokens(req, res) {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'refreshToken requis' });
+    }
+
+    let decoded;
+    try {
+      decoded = verifyRefreshToken(refreshToken);
+    } catch {
+      return res.status(401).json({ error: 'Refresh token invalide ou expiré' });
+    }
+
+    const tokenHash = hashToken(refreshToken);
+    const rows = await query(
+      'SELECT * FROM refresh_tokens WHERE token_hash = ? AND user_id = ? AND expires_at > NOW()',
+      [tokenHash, decoded.id]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(401).json({ error: 'Refresh token révoqué ou expiré' });
+    }
+
+    // Rotate: delete old token and issue new ones
+    await query('DELETE FROM refresh_tokens WHERE token_hash = ?', [tokenHash]);
+
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(401).json({ error: 'Utilisateur non trouvé' });
+    }
+
+    const newToken = generateToken({ id: user.id, username: user.username, email: user.email });
+    const newRefreshToken = await _issueRefreshToken(user.id);
+
+    res.json({
+      message: 'Tokens renouvelés',
+      token: newToken,
+      refreshToken: newRefreshToken
+    });
+  } catch (err) {
+    console.error('refreshTokens error:', err);
+    res.status(500).json({ error: 'Erreur lors du renouvellement des tokens' });
+  }
+}
+
+async function logout(req, res) {
+  try {
+    const { refreshToken } = req.body;
+    if (refreshToken) {
+      const tokenHash = hashToken(refreshToken);
+      await query('DELETE FROM refresh_tokens WHERE token_hash = ?', [tokenHash]);
+    }
+    res.json({ message: 'Déconnexion réussie' });
+  } catch (err) {
+    console.error('logout error:', err);
+    res.status(500).json({ error: 'Erreur lors de la déconnexion' });
+  }
+}
+
+module.exports = { register, login, verifyOTP, refreshTokens, logout, setupOTP, confirmOTP, disableOTP };

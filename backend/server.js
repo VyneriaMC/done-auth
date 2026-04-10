@@ -4,9 +4,11 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { initDatabase } = require('./src/config/database');
+const { Vault } = require('./src/models/Vault');
 
 const authRoutes = require('./src/routes/auth');
 const userRoutes = require('./src/routes/user');
+const vaultRoutes = require('./src/routes/vault');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -43,6 +45,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/vault', vaultRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -62,10 +65,28 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Scheduled vault history cleanup (purge versions older than 30 days)
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+async function runCleanup() {
+  try {
+    const deleted = await Vault.purgeOldVersions();
+    if (deleted > 0) {
+      console.log(`🧹 Nettoyage vault: ${deleted} version(s) supprimée(s) (>30 jours)`);
+    }
+  } catch (err) {
+    console.error('❌ Erreur lors du nettoyage vault:', err);
+  }
+}
+
 // Start server
 async function start() {
   try {
     await initDatabase();
+
+    // Run cleanup on startup, then every 24 hours
+    await runCleanup();
+    setInterval(runCleanup, CLEANUP_INTERVAL_MS);
+
     app.listen(PORT, () => {
       console.log(`✅ DONE Auth API démarrée sur le port ${PORT}`);
     });

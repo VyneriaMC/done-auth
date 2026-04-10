@@ -36,6 +36,55 @@ async function initDatabase() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      token_hash VARCHAR(255) NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      INDEX idx_rt_token_hash (token_hash),
+      INDEX idx_rt_user_id (user_id)
+    )
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS vaults (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT UNIQUE NOT NULL,
+      blob LONGTEXT NOT NULL,
+      kdf JSON DEFAULT NULL,
+      wrapped_key_master TEXT DEFAULT NULL,
+      wrapped_key_recovery TEXT DEFAULT NULL,
+      metadata JSON DEFAULT NULL,
+      revision INT NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS vault_versions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      vault_id INT NOT NULL,
+      user_id INT NOT NULL,
+      blob LONGTEXT NOT NULL,
+      kdf JSON DEFAULT NULL,
+      wrapped_key_master TEXT DEFAULT NULL,
+      wrapped_key_recovery TEXT DEFAULT NULL,
+      metadata JSON DEFAULT NULL,
+      revision INT NOT NULL,
+      size INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      INDEX idx_vv_user_created (user_id, created_at)
+    )
+  `);
+
   console.log('✅ Tables vérifiées/créées');
 }
 
